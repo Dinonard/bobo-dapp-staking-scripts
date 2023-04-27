@@ -1,6 +1,6 @@
 const { ApiPromise, WsProvider } = require("@polkadot/api");
 
-const ENDPOINT = "wss://runtime.astar.network";
+const ENDPOINT = "wss://rpc.astar.network";
 const FIRST_ERA_BLOCK = 815708;
 
 const connectApi = async () => {
@@ -44,7 +44,7 @@ const getStats = async () => {
           era
         );
         const eraStakeObject = eraStake.toHuman();
-        console.log(`\tContract ${address} - Total staked ${eraStakeObject?.total ?? 0} - Number of stakers ${eraStakeObject?.numberOfStakers ?? 0}`);
+        console.log(`\tContract ${address} - Total stake ${eraStakeObject?.total ?? 0} - Number of stakers ${eraStakeObject?.numberOfStakers ?? 0}`);
       } else {
         console.log(`\tContract ${address} - Unregistered at era ${dapp.state.Unregistered}`);
       }
