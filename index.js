@@ -32,7 +32,7 @@ const getStats = async () => {
     block += blocksPerEra;
     let registeredDapps = 0;
 
-    console.log(`\nEra ${era.toNumber()} - Block ${block}`);
+    console.log(`Era ${era.toNumber()} - Block ${block}`);
     for (const [key, value] of dapps) {
       const dapp = value.toHuman();
       const address = getAddress(key.args[0]);
@@ -50,7 +50,7 @@ const getStats = async () => {
       }
     }
 
-    console.log(`Registered dApps / total dApps: ${registeredDapps} / ${dapps.length}`);
+    console.log(`Registered dApps / total dApps: ${registeredDapps} / ${dapps.length}\n`);
   }
 };
 
