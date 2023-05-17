@@ -1,7 +1,10 @@
 const { ApiPromise, WsProvider } = require("@polkadot/api");
 
 const ENDPOINT = "wss://rpc.astar.network";
-const FIRST_ERA_BLOCK = 815708;
+
+// Rough estimate
+const FIRST_BLOCK = 1000000;
+const FINAL_BLOCK = 3585000;
 
 const connectApi = async () => {
   const wsProvider = new WsProvider(ENDPOINT);
@@ -9,48 +12,30 @@ const connectApi = async () => {
   return api;
 };
 
-const getAddress = (addressObject) => {
-  const address = JSON.parse(addressObject.toString());
-  return address.evm ?? address.wasm;
-};
-
 const getStats = async () => {
-  console.log("Getting dApp staking statistics...");
+  console.log("Getting block information.");
   const api = await connectApi();
 
-  const blocksPerEra = await api.consts.dappsStaking.blockPerEra.toNumber();
-  const currentEra = await api.query.dappsStaking.currentEra();
-  let era = 0;
-  let block = FIRST_ERA_BLOCK;
+  let block_counter = FIRST_BLOCK;
 
-  while (era < currentEra.toNumber()) {
-    const blockHash = await api.rpc.chain.getBlockHash(block);
-    const apiAt = await api.at(blockHash.toHuman());
-    era = await apiAt.query.dappsStaking.currentEra();
+  while (block_counter < FINAL_BLOCK) {
 
-    const dapps = await apiAt.query.dappsStaking.registeredDapps.entries();
-    block += blocksPerEra;
-    let registeredDapps = 0;
+    const blockHash = await api.rpc.chain.getBlockHash(block_counter);
 
-    console.log(`Era ${era.toNumber()} - Block ${block}`);
-    for (const [key, value] of dapps) {
-      const dapp = value.toHuman();
-      const address = getAddress(key.args[0]);
-      if (dapp.state === "Registered") {
-        registeredDapps++;
-        const addressObject = key.args[0].toHuman();
-        const eraStake = await apiAt.query.dappsStaking.contractEraStake(
-          addressObject,
-          era
-        );
-        const eraStakeObject = eraStake.toHuman();
-        console.log(`\tContract ${address} - Total stake ${eraStakeObject?.total ?? 0} - Number of stakers ${eraStakeObject?.numberOfStakers ?? 0}`);
-      } else {
-        console.log(`\tContract ${address} - Unregistered at era ${dapp.state.Unregistered}`);
-      }
-    }
+    const signedBlock = await api.rpc.chain.getBlock(blockHash);
+    const apiAt = await api.at(signedBlock.block.header.hash);
 
-    console.log(`Registered dApps / total dApps: ${registeredDapps} / ${dapps.length}\n`);
+    // TODO: it's possible to fetch the same date twice, but that's easy to clear via regex
+    const timestamp = await apiAt.query.timestamp.now();
+    let date = new Date(timestamp.toNumber());
+
+    const bonded_candidates_len = (await apiAt.query.collatorSelection.candidates()).length;
+    const invulnerables_len = (await apiAt.query.collatorSelection.invulnerables()).length;
+
+    console.log(`${date.toDateString()};${bonded_candidates_len};${invulnerables_len};${bonded_candidates_len + invulnerables_len}`);
+
+    // This is a rough estimate so we never skip over the entire day
+    block_counter +=  7000;
   }
 };
 
