@@ -1,61 +1,91 @@
-const { ApiPromise, WsProvider } = require("@polkadot/api");
+const { ApiPromise, WsProvider, Keyring } = require("@polkadot/api");
+const { KeyringPair } =  require("@polkadot/keyring/types");
+const { BN } = require("bn.js");
 
-const ENDPOINT = "wss://rpc.astar.network";
-const FIRST_ERA_BLOCK = 815708;
+const ENDPOINT = "ws://127.0.0.1:9944";
 
 const connectApi = async () => {
   const wsProvider = new WsProvider(ENDPOINT);
   const api = await ApiPromise.create({ provider: wsProvider });
+
   return api;
 };
 
-const getAddress = (addressObject) => {
-  const address = JSON.parse(addressObject.toString());
-  return address.evm ?? address.wasm;
-};
+async function getAccount(api) {
+	const keyring = new Keyring({ type: 'sr25519', ss58Format: api.registry.chainSS58 });
 
-const getStats = async () => {
-  console.log("Getting dApp staking statistics...");
+  const maybeSeed = process.env['SEED'];
+	if (maybeSeed) {
+    console.info("Creating an account from the provided seed.");
+		return keyring.addFromUri(maybeSeed);
+	} else {
+    console.info("No seed provided, using Alice.");
+    return keyring.addFromUri('//Alice');
+  }
+}
+
+async function sendAndFinalize(tx, signer) {
+	return new Promise((resolve) => {
+		let success = false;
+		let included = [];
+		let finalized = [];
+
+		// Should be enough to get in front of the queue
+		const tip = new BN(1_000_000_000_000_000);
+
+		tx.signAndSend(signer, { tip }, ({ events = [], status, dispatchError }) => {
+			if (status.isInBlock) {
+				success = dispatchError ? false : true;
+				console.log(
+					`📀 Transaction ${tx.meta.name}(..) included at blockHash ${status.asInBlock} [success = ${success}]`
+				);
+				included = [...events];
+			} else if (status.isBroadcast) {
+				console.log(`🚀 Transaction broadcasted.`);
+			} else if (status.isFinalized) {
+				console.log(
+					`💯 Transaction ${tx.meta.name}(..) Finalized at blockHash ${status.asFinalized}`
+				);
+				finalized = [...events];
+				const hash = status.hash;
+				resolve({ success, hash, included, finalized });
+			} else if (status.isReady) {
+				// let's not be too noisy..
+			} else {
+				console.log(`🤷 Other status ${status}`);
+			}
+		});
+	});
+}
+
+const migrate_dapp_staking = async () => {  
+  console.log("Preparing API...");
   const api = await connectApi();
 
-  const blocksPerEra = await api.consts.dappsStaking.blockPerEra.toNumber();
-  const currentEra = await api.query.dappsStaking.currentEra();
-  let era = 0;
-  let block = FIRST_ERA_BLOCK;
+  console.log("Getting account...");
+  const account = await getAccount(api);
 
-  while (era < currentEra.toNumber()) {
-    const blockHash = await api.rpc.chain.getBlockHash(block);
-    const apiAt = await api.at(blockHash.toHuman());
-    era = await apiAt.query.dappsStaking.currentEra();
+  console.log("Starting with migration.")
 
-    const dapps = await apiAt.query.dappsStaking.registeredDapps.entries();
-    block += blocksPerEra;
-    let registeredDapps = 0;
+  let steps = 0;
+  let migration_state = await api.query.dappStakingMigration.migrationStateStorage();
+  while (!migration_state.isFinished) {
+    steps++;
 
-    console.log(`Era ${era.toNumber()} - Block ${block}`);
-    for (const [key, value] of dapps) {
-      const dapp = value.toHuman();
-      const address = getAddress(key.args[0]);
-      if (dapp.state === "Registered") {
-        registeredDapps++;
-        const addressObject = key.args[0].toHuman();
-        const eraStake = await apiAt.query.dappsStaking.contractEraStake(
-          addressObject,
-          era
-        );
-        const eraStakeObject = eraStake.toHuman();
-        console.log(`\tContract ${address} - Total stake ${eraStakeObject?.total ?? 0} - Number of stakers ${eraStakeObject?.numberOfStakers ?? 0}`);
-      } else {
-        console.log(`\tContract ${address} - Unregistered at era ${dapp.state.Unregistered}`);
-      }
+    const tx = api.tx.dappStakingMigration.migrate(null);
+    const submitResult = await sendAndFinalize(tx, account);
+
+    if (!submitResult.success) {
+      throw "This shouldn't happen, since Tx must succeeed, eventually. If it does happen, fix the bug!";
     }
-
-    console.log(`Registered dApps / total dApps: ${registeredDapps} / ${dapps.length}\n`);
+    migration_state = await api.query.dappStakingMigration.migrationStateStorage();
   }
+
+  console.log("Migration finished. It took", steps, "steps.");
 };
 
 const run = async () => {
-  await getStats();
+  await migrate_dapp_staking();
   process.exit();
 };
 
