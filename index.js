@@ -69,9 +69,10 @@ const migrate_dapp_staking = async () => {
 
   let steps = 0;
   let migration_state = await api.query.dappStakingMigration.migrationStateStorage();
+  console.log("Init migration state:", migration_state.toJSON());
   while (!migration_state.isFinished) {
     steps++;
-
+    console.log("Executing step #", steps);
     const tx = api.tx.dappStakingMigration.migrate(null);
     const submitResult = await sendAndFinalize(tx, account);
 
